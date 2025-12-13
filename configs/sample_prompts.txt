@@ -1,0 +1,18 @@
+# Sample prompts for training evaluation
+# Replace <token> with your actual trigger token
+# These prompts follow the Evaluation Protocol from Section 7
+
+# Neutral portrait
+<token>, a portrait photo, neutral background, soft lighting, looking at camera
+
+# New environment
+<token>, standing in a modern office, professional setting, natural lighting
+
+# New outfit
+<token>, wearing a blue suit jacket, white shirt, professional attire
+
+# New style - cinematic
+<token>, cinematic portrait, dramatic lighting, shallow depth of field, film grain
+
+# Control (no token) - tests identity lock
+a person, portrait photo, neutral background, soft lighting

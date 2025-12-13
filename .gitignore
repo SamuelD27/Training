@@ -1,0 +1,48 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Training outputs (generated at runtime)
+output/*.safetensors
+output/samples/
+logs/*.log
+logs/pip_freeze.txt
+logs/dataset_report.json
+
+# Data directories (mounted at runtime)
+data/subject/images/*
+data/subject/captions/*
+data/reg/images/*
+data/reg/captions/*
+!data/subject/images/.gitkeep
+!data/subject/captions/.gitkeep
+!data/reg/images/.gitkeep
+!data/reg/captions/.gitkeep
+
+# Third party (cloned at build time)
+third_party/sd-scripts/
+
+# Cache
+.cache/
+*.cache
+
+# Temporary files
+*.tmp
+*.temp

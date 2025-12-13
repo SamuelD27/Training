@@ -1,0 +1,97 @@
+# ============================================================================
+# FLUX.1-dev Identity LoRA - Final High-Fidelity Profile (Production)
+# ============================================================================
+# Source: DeepResearchReport.md Section 4.2
+# Purpose: Maximum realism, strong identity lock, robust generalization
+# ============================================================================
+
+[general]
+# Paths (override via environment variables)
+pretrained_model_name_or_path = "/workspace/models/flux1-dev"
+train_data_dir = "/workspace/lora_training/data/subject"
+output_dir = "/workspace/lora_training/output"
+output_name = "flux_lora_final"
+logging_dir = "/workspace/lora_training/logs"
+
+# Optional regularization directory
+# reg_data_dir = "/workspace/lora_training/data/reg"
+
+[network]
+# LoRA configuration (Section 4.2: rank/alpha 64/64, dropout 0.1)
+network_module = "networks.lora"
+network_dim = 64
+network_alpha = 64
+network_dropout = 0.1
+
+[optimizer]
+# Adafactor (Section 4.2)
+optimizer_type = "Adafactor"
+optimizer_args = ["relative_step=False", "scale_parameter=False"]
+unet_lr = 1e-4
+text_encoder_lr = 0  # TE frozen by default (enable via ENABLE_TE=1)
+
+[scheduler]
+# Cosine with warmup (Section 4.2)
+lr_scheduler = "cosine"
+lr_warmup_steps = 500
+
+[training]
+# Resolution and bucketing (Section 4.2: 768 base, buckets up to 1024)
+resolution = "768,768"
+enable_bucket = true
+min_bucket_reso = 384
+max_bucket_reso = 1024
+bucket_reso_steps = 64
+
+# Training steps (Section 4.2: 2000-3000)
+max_train_steps = 2500
+
+# Batch and accumulation
+train_batch_size = 1
+gradient_accumulation_steps = 4
+
+# Precision (Section 3: bf16 + fp8_base)
+mixed_precision = "bf16"
+full_bf16 = true
+fp8_base = true
+
+# Memory optimization
+gradient_checkpointing = true
+
+# Noise (Section 4.2: noise_offset 0.1)
+noise_offset = 0.1
+
+# SNR loss (Section 4.2: min_snr_gamma 5.0)
+min_snr_gamma = 5.0
+
+# Reproducibility
+seed = 42
+
+[saving]
+save_every_n_steps = 500
+save_model_as = "safetensors"
+save_precision = "bf16"
+
+[sampling]
+# Sample generation during training
+sample_every_n_steps = 250
+sample_prompts = "/workspace/lora_training/configs/sample_prompts.txt"
+sample_sampler = "euler"
+
+[dataset]
+# Caption handling
+caption_extension = ".txt"
+shuffle_caption = false
+keep_tokens = 1  # Keep trigger token
+
+# Regularization (uncomment when using reg set)
+# prior_loss_weight = 1.0
+
+[advanced]
+# FLUX-specific
+model_prediction_type = "raw"
+# cache_latents = true
+# cache_text_encoder_outputs = true
+
+# Huber loss (alternative to SNR)
+# loss_type = "huber"
