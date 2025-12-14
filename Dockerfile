@@ -93,14 +93,16 @@ RUN pip install --no-cache-dir \
     tqdm==4.66.5 \
     sentencepiece==0.2.0 \
     ftfy==6.3.1 \
-    einops \
-    xformers
+    einops
+
+# Install xformers compatible with torch 2.5.1
+RUN pip install --no-cache-dir xformers==0.0.28.post3 --index-url https://download.pytorch.org/whl/cu121
 
 # Install nvitop for GPU monitoring
 RUN pip install --no-cache-dir nvitop
 
 # Clone sd-scripts (pinned version)
-ENV SDSCRIPTS_VERSION=v0.9.2
+ENV SDSCRIPTS_VERSION=v0.9.1
 RUN git clone https://github.com/kohya-ss/sd-scripts.git /workspace/sd-scripts \
     && cd /workspace/sd-scripts \
     && git checkout ${SDSCRIPTS_VERSION} \

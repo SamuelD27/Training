@@ -78,7 +78,7 @@ https://github.com/kohya-ss/sd-scripts
 
 ### Pinned Commit
 ```
-SDSCRIPTS_COMMIT=v0.9.2
+SDSCRIPTS_COMMIT=v0.9.1
 ```
 
 **Note**: This is the stable FLUX-compatible release. If HEAD breaks, the Dockerfile will checkout this specific tag.
@@ -87,7 +87,7 @@ SDSCRIPTS_COMMIT=v0.9.2
 ```bash
 git clone https://github.com/kohya-ss/sd-scripts.git third_party/sd-scripts
 cd third_party/sd-scripts
-git checkout v0.9.2
+git checkout v0.9.1
 ```
 
 ---
