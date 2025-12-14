@@ -48,21 +48,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/python3.10 /usr/bin/python \
     && ln -sf /usr/bin/python3.10 /usr/bin/python3
 
-# Upgrade pip
-RUN python -m pip install --upgrade pip setuptools wheel
+# Upgrade pip and install uv for fast dependency management
+RUN python -m pip install --upgrade pip setuptools wheel uv
 
 # Set working directory
 WORKDIR /workspace
 
 # Install PyTorch (pinned to 2.5.1 + CUDA 12.1)
-RUN pip install --no-cache-dir \
+RUN uv pip install --system \
     torch==2.5.1 \
     torchvision==0.20.1 \
     torchaudio==2.5.1 \
     --index-url https://download.pytorch.org/whl/cu121
 
 # Install core training dependencies (pinned versions)
-RUN pip install --no-cache-dir \
+RUN uv pip install --system \
     accelerate==0.25.0 \
     bitsandbytes==0.44.1 \
     transformers==4.46.3 \
@@ -71,7 +71,7 @@ RUN pip install --no-cache-dir \
     huggingface-hub==0.26.2
 
 # Install sd-scripts dependencies
-RUN pip install --no-cache-dir \
+RUN uv pip install --system \
     lion-pytorch==0.2.3 \
     prodigyopt==1.0 \
     schedulefree==1.2.6 \
@@ -80,14 +80,14 @@ RUN pip install --no-cache-dir \
     tensorboard==2.18.0
 
 # Install dataset analysis dependencies
-RUN pip install --no-cache-dir \
+RUN uv pip install --system \
     Pillow==10.4.0 \
     imagehash==4.3.1 \
     opencv-python-headless==4.10.0.84 \
     numpy==1.26.4
 
 # Install utilities
-RUN pip install --no-cache-dir \
+RUN uv pip install --system \
     pyyaml==6.0.2 \
     toml==0.10.2 \
     tqdm==4.66.5 \
@@ -96,17 +96,17 @@ RUN pip install --no-cache-dir \
     einops
 
 # Install xformers compatible with torch 2.5.1
-RUN pip install --no-cache-dir xformers==0.0.28.post3 --index-url https://download.pytorch.org/whl/cu121
+RUN uv pip install --system xformers==0.0.28.post3 --index-url https://download.pytorch.org/whl/cu121
 
 # Install nvitop for GPU monitoring
-RUN pip install --no-cache-dir nvitop
+RUN uv pip install --system nvitop
 
 # Clone sd-scripts (pinned version)
 ENV SDSCRIPTS_VERSION=v0.9.1
 RUN git clone https://github.com/kohya-ss/sd-scripts.git /workspace/sd-scripts \
     && cd /workspace/sd-scripts \
     && git checkout ${SDSCRIPTS_VERSION} \
-    && pip install --no-cache-dir -r requirements.txt
+    && uv pip install --system -r requirements.txt
 
 # Copy repository
 COPY . /workspace/lora_training
