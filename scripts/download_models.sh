@@ -58,11 +58,25 @@ check_cmd "aria2c" "brew install aria2"
 check_cmd "rclone" "brew install rclone"
 check_cmd "jq" "brew install jq"
 
-# Check Python packages
-if ! python3 -c "import huggingface_hub" 2>/dev/null; then
-    echo -e "${YELLOW}[WARN]${NC} huggingface_hub not found, installing..."
-    pip3 install huggingface_hub hf_transfer
+# Check for huggingface-cli or hf command
+if ! command -v huggingface-cli &> /dev/null && ! command -v hf &> /dev/null; then
+    echo -e "${YELLOW}[WARN]${NC} huggingface-cli not found, installing via pipx..."
+    if command -v pipx &> /dev/null; then
+        pipx install huggingface_hub
+        pipx inject huggingface_hub hf_transfer
+    else
+        echo -e "${RED}[ERROR]${NC} Install pipx first: brew install pipx"
+        exit 1
+    fi
 fi
+
+# Determine which HF CLI command to use
+if command -v huggingface-cli &> /dev/null; then
+    HF_CLI="huggingface-cli"
+else
+    HF_CLI="hf"
+fi
+echo -e "${GREEN}  ✓${NC} HuggingFace CLI: ${HF_CLI}"
 
 echo ""
 
@@ -134,7 +148,7 @@ export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN}"
 # Download with huggingface-cli (uses hf_transfer under the hood)
 echo -e "${BLUE}[INFO]${NC} Using hf_transfer for optimized download..."
 
-huggingface-cli download "${MODEL_NAME}" \
+${HF_CLI} download "${MODEL_NAME}" \
     --local-dir "${LOCAL_MODEL_DIR}" \
     --local-dir-use-symlinks False \
     --token "${HF_TOKEN}"
