@@ -3,11 +3,13 @@
 # Identity LoRA Training - Container Startup Script
 # ============================================================================
 # This script runs on container boot to:
-# 1. Print version banner
-# 2. Create runtime directories
-# 3. Write pip freeze
-# 4. Run healthchecks
-# 5. Print usage instructions (does NOT start training)
+# 1. Start SSH server (for TCP access on RunPod)
+# 2. Bootstrap repo if /workspace was overwritten by volume mount
+# 3. Print version banner
+# 4. Create runtime directories
+# 5. Write pip freeze
+# 6. Run healthchecks
+# 7. Print usage instructions (does NOT start training)
 # ============================================================================
 
 set -e
@@ -21,7 +23,105 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 WORKSPACE="/workspace/lora_training"
-SDSCRIPTS="/workspace/sd-scripts"
+SDSCRIPTS="${SDSCRIPTS:-/opt/sd-scripts}"  # Use env var or default to /opt
+
+# ============================================================================
+# Start SSH Server (for TCP access)
+# ============================================================================
+echo -e "${BLUE}[INFO]${NC} Starting SSH server..."
+service ssh start 2>/dev/null || /usr/sbin/sshd 2>/dev/null || echo -e "${YELLOW}[WARN]${NC} SSH server not available"
+if pgrep -x sshd > /dev/null; then
+    echo -e "${GREEN}[OK]${NC} SSH server running on port 22"
+    echo -e "${YELLOW}[INFO]${NC} Default credentials: root / runpod (change with: passwd)"
+else
+    echo -e "${YELLOW}[WARN]${NC} SSH server failed to start"
+fi
+echo ""
+
+# ============================================================================
+# Bootstrap Repository (if /workspace was overwritten by volume mount)
+# ============================================================================
+if [ ! -d "${WORKSPACE}/scripts" ]; then
+    echo -e "${BLUE}[INFO]${NC} Workspace not found, bootstrapping from /opt/lora-training/repo..."
+    mkdir -p /workspace
+    if [ -d "/opt/lora-training/repo" ]; then
+        cp -r /opt/lora-training/repo /workspace/lora_training
+        chmod +x /workspace/lora_training/scripts/*.sh 2>/dev/null || true
+        chmod +x /workspace/lora_training/docker/*.sh 2>/dev/null || true
+        echo -e "${GREEN}[OK]${NC} Repository bootstrapped to ${WORKSPACE}"
+    else
+        echo -e "${YELLOW}[WARN]${NC} No backup repo found in /opt/lora-training/repo"
+        echo -e "${YELLOW}[WARN]${NC} You may need to clone: git clone https://github.com/YOUR_REPO ${WORKSPACE}"
+    fi
+    echo ""
+fi
+
+# Create symlink for sd-scripts if needed
+if [ ! -d "${WORKSPACE}/third_party/sd-scripts" ] && [ -d "${SDSCRIPTS}" ]; then
+    mkdir -p ${WORKSPACE}/third_party
+    ln -sf ${SDSCRIPTS} ${WORKSPACE}/third_party/sd-scripts
+    echo -e "${GREEN}[OK]${NC} sd-scripts symlinked to ${WORKSPACE}/third_party/sd-scripts"
+fi
+
+# ============================================================================
+# Auto-Sync Models from R2 (if not present)
+# ============================================================================
+# Set AUTO_SYNC_MODELS=1 to enable automatic model download on startup
+# Models are synced from Cloudflare R2 for fast downloads (~2-5 min)
+MODEL_DIR="${MODEL_PATH:-/workspace/models/flux1-dev}"
+AUTO_SYNC="${AUTO_SYNC_MODELS:-1}"
+
+if [ "$AUTO_SYNC" = "1" ] && [ ! -f "${MODEL_DIR}/flux1-dev.safetensors" ]; then
+    echo -e "${BLUE}[INFO]${NC} Models not found at ${MODEL_DIR}"
+    echo -e "${BLUE}[INFO]${NC} Auto-syncing models from R2 (this takes 2-5 minutes)..."
+    echo ""
+
+    # Run sync script in background so startup continues
+    if [ -f "${WORKSPACE}/scripts/sync_models_r2.sh" ]; then
+        # Run sync and log output
+        nohup bash ${WORKSPACE}/scripts/sync_models_r2.sh > ${WORKSPACE}/logs/model_sync.log 2>&1 &
+        SYNC_PID=$!
+        echo -e "${YELLOW}[INFO]${NC} Model sync started in background (PID: ${SYNC_PID})"
+        echo -e "${YELLOW}[INFO]${NC} Monitor progress: tail -f ${WORKSPACE}/logs/model_sync.log"
+        echo ""
+    else
+        echo -e "${YELLOW}[WARN]${NC} Sync script not found. Run manually: bash scripts/sync_models_r2.sh"
+    fi
+elif [ -f "${MODEL_DIR}/flux1-dev.safetensors" ]; then
+    echo -e "${GREEN}[OK]${NC} Models found at ${MODEL_DIR}"
+fi
+
+# ============================================================================
+# Download Text Encoders (CLIP-L and T5-XXL from ComfyUI)
+# ============================================================================
+# These are required for FLUX.1 training with kohya-ss flux_train_network.py
+TEXT_ENCODER_DIR="${TEXT_ENCODER_PATH:-/workspace/models/text_encoders}"
+
+if [ ! -f "${TEXT_ENCODER_DIR}/clip_l.safetensors" ] || [ ! -f "${TEXT_ENCODER_DIR}/t5xxl_fp16.safetensors" ]; then
+    echo -e "${BLUE}[INFO]${NC} Text encoders not found at ${TEXT_ENCODER_DIR}"
+    echo -e "${BLUE}[INFO]${NC} Downloading CLIP-L and T5-XXL from ComfyUI (required for FLUX training)..."
+    mkdir -p "${TEXT_ENCODER_DIR}"
+
+    # Download in background
+    (
+        cd "${TEXT_ENCODER_DIR}"
+        if [ ! -f "clip_l.safetensors" ]; then
+            echo "[INFO] Downloading clip_l.safetensors (235MB)..."
+            wget -q --show-progress -nc https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors 2>&1 || true
+        fi
+        if [ ! -f "t5xxl_fp16.safetensors" ]; then
+            echo "[INFO] Downloading t5xxl_fp16.safetensors (9.2GB)..."
+            wget -q --show-progress -nc https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors 2>&1 || true
+        fi
+        echo "[INFO] Text encoder download complete"
+    ) > ${WORKSPACE}/logs/text_encoder_download.log 2>&1 &
+    TE_PID=$!
+    echo -e "${YELLOW}[INFO]${NC} Text encoder download started in background (PID: ${TE_PID})"
+    echo -e "${YELLOW}[INFO]${NC} Monitor progress: tail -f ${WORKSPACE}/logs/text_encoder_download.log"
+    echo ""
+else
+    echo -e "${GREEN}[OK]${NC} Text encoders found at ${TEXT_ENCODER_DIR}"
+fi
 
 # ============================================================================
 # Banner
@@ -121,19 +221,19 @@ else
     HEALTH_OK=false
 fi
 
-# Check 2: sd-scripts exists
-if [ -d "${SDSCRIPTS}" ] && [ -f "${SDSCRIPTS}/train_network.py" ]; then
-    echo -e "${GREEN}[PASS]${NC} sd-scripts found at ${SDSCRIPTS}"
+# Check 2: sd-scripts exists (with FLUX support)
+if [ -d "${SDSCRIPTS}" ] && [ -f "${SDSCRIPTS}/flux_train_network.py" ]; then
+    echo -e "${GREEN}[PASS]${NC} sd-scripts (sd3 branch) found at ${SDSCRIPTS}"
 else
-    echo -e "${RED}[FAIL]${NC} sd-scripts not found"
+    echo -e "${RED}[FAIL]${NC} sd-scripts with FLUX support not found"
     HEALTH_OK=false
 fi
 
-# Check 3: train_network.py importable
-if python -c "import sys; sys.path.insert(0, '${SDSCRIPTS}'); import train_network" 2>/dev/null; then
-    echo -e "${GREEN}[PASS]${NC} train_network.py importable"
+# Check 3: flux_train_network.py importable
+if python -c "import sys; sys.path.insert(0, '${SDSCRIPTS}'); import flux_train_network" 2>/dev/null; then
+    echo -e "${GREEN}[PASS]${NC} flux_train_network.py importable"
 else
-    echo -e "${YELLOW}[WARN]${NC} train_network.py import check skipped (may need deps)"
+    echo -e "${YELLOW}[WARN]${NC} flux_train_network.py import check skipped (may need deps)"
 fi
 
 # Check 4: accelerate config exists
@@ -188,6 +288,20 @@ echo -e "${CYAN}╔════════════════════�
 echo -e "${CYAN}║                      READY FOR TRAINING                        ║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
+
+# Show SSH connection info if running on RunPod
+if [ -n "$RUNPOD_POD_ID" ] || [ -n "$RUNPOD_PUBLIC_IP" ]; then
+    echo -e "${YELLOW}SSH Connection (TCP):${NC}"
+    if [ -n "$RUNPOD_TCP_PORT_22" ]; then
+        echo "  ssh root@${RUNPOD_PUBLIC_IP:-<pod-ip>} -p ${RUNPOD_TCP_PORT_22}"
+    else
+        echo "  Ensure 'Expose TCP Ports' is enabled in your RunPod template"
+        echo "  TCP port 22 must be exposed for SSH access"
+    fi
+    echo "  Default password: runpod (change with: passwd)"
+    echo ""
+fi
+
 echo -e "${YELLOW}Dataset Location:${NC}"
 echo "  Mount your dataset to: /workspace/lora_training/data/subject/"
 echo "  Structure: images/*.jpg|png + captions/*.txt (same basenames)"
@@ -226,5 +340,15 @@ echo -e "${GREEN}Container is ready. Training will NOT start automatically.${NC}
 echo "----------------------------------------"
 echo ""
 
-# Keep container running (interactive shell)
-exec /bin/bash
+# Keep container running
+# If TTY is attached (interactive), start bash shell
+# Otherwise (RunPod template), sleep forever to keep container alive
+if [ -t 0 ]; then
+    echo "[INFO] Interactive mode detected, starting bash..."
+    exec /bin/bash
+else
+    echo "[INFO] Non-interactive mode (RunPod template), keeping container alive..."
+    echo "[INFO] Use SSH or Web Terminal to connect"
+    # Sleep forever - SSH server handles connections in background
+    exec sleep infinity
+fi

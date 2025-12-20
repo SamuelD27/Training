@@ -1,18 +1,24 @@
-# Sample prompts for training evaluation
-# Replace <token> with your actual trigger token
-# These prompts follow the Evaluation Protocol from Section 7
+# Identity LoRA Sample Prompts - Evaluation Set
+# Trigger word: TOK Woman
+# These 5 prompts are designed to evaluate identity preservation quality
+# across different conditions: lighting, environment, style, and pose.
 
-# Neutral portrait
-<token>, a portrait photo, neutral background, soft lighting, looking at camera
+# 1. CLEAN PORTRAIT - Baseline identity test
+# Tests: Basic facial features, skin tone, eye color, hair
+TOK Woman, professional headshot photo, plain white background, soft studio lighting, sharp focus, looking directly at camera, neutral expression, 8k uhd
 
-# New environment
-<token>, standing in a modern office, professional setting, natural lighting
+# 2. DRAMATIC LIGHTING - Identity under challenging light
+# Tests: Identity preservation with strong shadows and highlights
+TOK Woman, portrait with dramatic side lighting, dark background, chiaroscuro lighting, half face in shadow, moody atmosphere, professional photography
 
-# New outfit
-<token>, wearing a blue suit jacket, white shirt, professional attire
+# 3. OUTDOOR ENVIRONMENT - Identity in natural context
+# Tests: Identity in a completely different setting than training
+TOK Woman, candid street photography, golden hour sunlight, urban city background, natural pose, bokeh background, authentic moment, lifestyle photography
 
-# New style - cinematic
-<token>, cinematic portrait, dramatic lighting, shallow depth of field, film grain
+# 4. CINEMATIC STYLE - Artistic style transfer
+# Tests: Identity preservation while applying strong stylistic changes
+TOK Woman, cinematic film still, anamorphic lens flare, teal and orange color grading, shallow depth of field, movie scene, 35mm film grain, directed lighting
 
-# Control (no token) - tests identity lock
-a person, portrait photo, neutral background, soft lighting
+# 5. EXPRESSIVE POSE - Identity with different expression
+# Tests: Identity across facial expressions and body language
+TOK Woman, laughing genuinely, candid happy moment, warm natural lighting, lifestyle portrait, joyful expression, eyes crinkled from smiling, authentic emotion

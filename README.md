@@ -86,6 +86,39 @@ See [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) for all options.
 
 ---
 
+## Configuration System (Single Source of Truth)
+
+All training configuration is centralized in TOML files:
+
+- `configs/flux_fast.toml` - Fast iteration profile (512px, 1500 steps)
+- `configs/flux_final.toml` - Production profile (768px, 2500 steps)
+
+These are loaded by `scripts/build_train_cmd.py` which generates the exact command for kohya-ss.
+
+### Key Parameters (P0/P1 Fixes Applied)
+
+| Parameter | Fast | Final | Description |
+|-----------|------|-------|-------------|
+| `network_alpha` | 32 | 64 | Now matches rank (was 1) |
+| `noise_offset` | 0.05 | 0.1 | Now wired (was missing) |
+| `network_dropout` | 0 | 0.1 | Now wired (was missing) |
+| `min_snr_gamma` | 0 | 5.0 | Now wired (was missing) |
+| `gradient_accumulation_steps` | 4 | 4 | Now wired (was missing) |
+
+### Override via Environment
+
+```bash
+RANK=48 MAX_STEPS=2000 NOISE_OFFSET=0.08 bash scripts/train_flux_final.sh
+```
+
+### Validation
+
+```bash
+python scripts/validate_config_usage.py
+```
+
+---
+
 ## Output Locations
 
 | Content | Location |
@@ -158,23 +191,25 @@ lora_training/
 ├── docker/
 │   ├── Dockerfile            # Container definition
 │   ├── start.sh              # Container entrypoint
-│   └── env.sh                # Environment defaults
+│   └── env.sh                # Environment defaults (paths)
 ├── scripts/
+│   ├── build_train_cmd.py    # SINGLE SOURCE OF TRUTH for training commands
 │   ├── analyze_dataset.py    # Dataset analysis
-│   ├── train_flux_fast.sh    # Fast iteration training
-│   ├── train_flux_final.sh   # Production training
+│   ├── train_flux_fast.sh    # Fast iteration training (uses build_train_cmd.py)
+│   ├── train_flux_final.sh   # Production training (uses build_train_cmd.py)
+│   ├── train_dashboard.sh    # Dashboard training (uses build_train_cmd.py)
+│   ├── validate_config_usage.py  # Validate P0/P1 fixes
 │   ├── telemetry.sh          # GPU monitoring
-│   ├── tmux_train.sh         # tmux orchestrator
-│   └── make_regularization_set.md
+│   └── tmux_train.sh         # tmux orchestrator
 ├── configs/
-│   ├── flux_fast.toml        # Fast profile config
-│   ├── flux_final.toml       # Final profile config
+│   ├── flux_fast.toml        # Fast profile config (SOURCE OF TRUTH)
+│   ├── flux_final.toml       # Final profile config (SOURCE OF TRUTH)
 │   └── sample_prompts.txt    # Evaluation prompts
 ├── data/
 │   ├── subject/              # Your dataset (mount here)
 │   └── reg/                  # Regularization images
 ├── output/                   # Training outputs
-├── logs/                     # Training logs
+├── logs/                     # Training logs + reproducibility artifacts
 ├── docs/                     # Documentation
 └── third_party/
     └── sd-scripts/           # kohya-ss sd-scripts (pinned)

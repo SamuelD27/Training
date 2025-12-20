@@ -3,10 +3,13 @@
 # ============================================================================
 # Source: DeepResearchReport.md Section 4.1
 # Purpose: Validate dataset, detect early overfit, <1 hour runtime
+#
+# This is the SOURCE OF TRUTH for fast profile configuration.
+# Loaded by scripts/build_train_cmd.py
 # ============================================================================
 
 [general]
-# Paths (override via environment variables)
+# Paths (override via environment variables: MODEL_PATH, DATA_DIR, OUT_DIR)
 pretrained_model_name_or_path = "/workspace/models/flux1-dev"
 train_data_dir = "/workspace/lora_training/data/subject"
 output_dir = "/workspace/lora_training/output"
@@ -14,16 +17,17 @@ output_name = "flux_lora_fast"
 logging_dir = "/workspace/lora_training/logs"
 
 [network]
-# LoRA configuration (Section 4.1: rank/alpha 32/32)
-network_module = "networks.lora"
+# LoRA configuration
+# P0 Fix: network_module is networks.lora_flux for FLUX (build_train_cmd.py enforces this)
+# P0 Fix: network_alpha = network_dim (Section 4.1: rank/alpha 32/32)
+network_module = "networks.lora_flux"
 network_dim = 32
 network_alpha = 32
 
 [optimizer]
-# Adafactor with fixed LR (Section 4.1)
-optimizer_type = "Adafactor"
-optimizer_args = ["relative_step=False", "scale_parameter=False"]
-unet_lr = 1e-4
+# AdamW8bit with fixed LR (alternative to Adafactor from report)
+optimizer_type = "AdamW8bit"
+learning_rate = 1e-4
 text_encoder_lr = 0  # TE frozen by default
 
 [scheduler]
@@ -33,7 +37,7 @@ lr_warmup_steps = 100
 
 [training]
 # Resolution and bucketing (Section 4.1)
-resolution = "512,512"
+resolution = 512
 enable_bucket = true
 min_bucket_reso = 256
 max_bucket_reso = 768
@@ -43,19 +47,18 @@ bucket_reso_steps = 64
 max_train_steps = 1500
 
 # Batch and accumulation
+# P1 Fix: gradient_accumulation_steps now wired
 train_batch_size = 1
 gradient_accumulation_steps = 4
 
-# Precision (Section 3: bf16 + fp8_base)
+# Precision (Section 3: bf16 + optional fp8_base via FP8_BASE=1 env var)
 mixed_precision = "bf16"
-full_bf16 = true
-fp8_base = true
 
 # Memory optimization
 gradient_checkpointing = true
-# block_lr = 0  # Enable if needed for VRAM
+blocks_to_swap = 18
 
-# Noise (Section 4.1: noise_offset 0.05)
+# P0 Fix: noise_offset now wired (Section 4.1: 0.05 for fast)
 noise_offset = 0.05
 
 # Reproducibility
@@ -75,11 +78,8 @@ sample_sampler = "euler"
 [dataset]
 # Caption handling
 caption_extension = ".txt"
-shuffle_caption = false
 keep_tokens = 1  # Keep trigger token
 
-[advanced]
-# FLUX-specific
-model_prediction_type = "raw"
-# cache_latents = true
-# cache_text_encoder_outputs = true
+[performance]
+# Dataloader workers
+max_data_loader_n_workers = 2

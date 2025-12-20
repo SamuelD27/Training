@@ -8,11 +8,16 @@
 
 # Paths (can be overridden by environment)
 export WORKSPACE="${WORKSPACE:-/workspace/lora_training}"
-export SDSCRIPTS="${SDSCRIPTS:-/workspace/sd-scripts}"
-export TRAIN_SCRIPT="${TRAIN_SCRIPT:-${SDSCRIPTS}/train_network.py}"
+export SDSCRIPTS="${SDSCRIPTS:-/opt/sd-scripts}"  # /opt survives RunPod volume mounts
+
+# FLUX.1 training uses flux_train_network.py (from sd3 branch)
+export TRAIN_SCRIPT="${TRAIN_SCRIPT:-${SDSCRIPTS}/flux_train_network.py}"
 
 # Default model path (override with MODEL_PATH env var)
 export MODEL_PATH="${MODEL_PATH:-/workspace/models/flux1-dev}"
+
+# Text encoder path (CLIP-L and T5-XXL from ComfyUI)
+export TEXT_ENCODER_PATH="${TEXT_ENCODER_PATH:-/workspace/models/text_encoders}"
 
 # Dataset paths
 export DATA_DIR="${DATA_DIR:-${WORKSPACE}/data/subject}"

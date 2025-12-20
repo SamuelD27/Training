@@ -3,41 +3,47 @@
 # ============================================================================
 # Source: DeepResearchReport.md Section 4.2
 # Purpose: Maximum realism, strong identity lock, robust generalization
+#
+# This is the SOURCE OF TRUTH for final profile configuration.
+# Loaded by scripts/build_train_cmd.py
 # ============================================================================
 
 [general]
-# Paths (override via environment variables)
+# Paths (override via environment variables: MODEL_PATH, DATA_DIR, OUT_DIR)
 pretrained_model_name_or_path = "/workspace/models/flux1-dev"
 train_data_dir = "/workspace/lora_training/data/subject"
 output_dir = "/workspace/lora_training/output"
 output_name = "flux_lora_final"
 logging_dir = "/workspace/lora_training/logs"
 
-# Optional regularization directory
+# Optional regularization directory (uncomment and set USE_REG=1)
 # reg_data_dir = "/workspace/lora_training/data/reg"
 
 [network]
-# LoRA configuration (Section 4.2: rank/alpha 64/64, dropout 0.1)
-network_module = "networks.lora"
+# LoRA configuration
+# P0 Fix: network_module is networks.lora_flux for FLUX (build_train_cmd.py enforces this)
+# P0 Fix: network_alpha = network_dim (Section 4.2: rank/alpha 64/64)
+# P0 Fix: network_dropout now wired (Section 4.2: 0.1 for final)
+network_module = "networks.lora_flux"
 network_dim = 64
 network_alpha = 64
 network_dropout = 0.1
 
 [optimizer]
-# Adafactor (Section 4.2)
-optimizer_type = "Adafactor"
-optimizer_args = ["relative_step=False", "scale_parameter=False"]
-unet_lr = 1e-4
+# AdamW8bit (Section 4.2)
+optimizer_type = "AdamW8bit"
+learning_rate = 1e-4
 text_encoder_lr = 0  # TE frozen by default (enable via ENABLE_TE=1)
 
 [scheduler]
 # Cosine with warmup (Section 4.2)
-lr_scheduler = "cosine"
+lr_scheduler = "cosine_with_restarts"
 lr_warmup_steps = 500
+lr_scheduler_num_cycles = 1
 
 [training]
 # Resolution and bucketing (Section 4.2: 768 base, buckets up to 1024)
-resolution = "768,768"
+resolution = 768
 enable_bucket = true
 min_bucket_reso = 384
 max_bucket_reso = 1024
@@ -47,21 +53,21 @@ bucket_reso_steps = 64
 max_train_steps = 2500
 
 # Batch and accumulation
+# P1 Fix: gradient_accumulation_steps now wired
 train_batch_size = 1
 gradient_accumulation_steps = 4
 
-# Precision (Section 3: bf16 + fp8_base)
+# Precision (Section 3: bf16 + optional fp8_base via FP8_BASE=1 env var)
 mixed_precision = "bf16"
-full_bf16 = true
-fp8_base = true
 
 # Memory optimization
 gradient_checkpointing = true
+blocks_to_swap = 18
 
-# Noise (Section 4.2: noise_offset 0.1)
+# P0 Fix: noise_offset now wired (Section 4.2: 0.1 for final)
 noise_offset = 0.1
 
-# SNR loss (Section 4.2: min_snr_gamma 5.0)
+# P0 Fix: min_snr_gamma now wired (Section 4.2: 5.0 for final)
 min_snr_gamma = 5.0
 
 # Reproducibility
@@ -81,17 +87,11 @@ sample_sampler = "euler"
 [dataset]
 # Caption handling
 caption_extension = ".txt"
-shuffle_caption = false
 keep_tokens = 1  # Keep trigger token
 
 # Regularization (uncomment when using reg set)
 # prior_loss_weight = 1.0
 
-[advanced]
-# FLUX-specific
-model_prediction_type = "raw"
-# cache_latents = true
-# cache_text_encoder_outputs = true
-
-# Huber loss (alternative to SNR)
-# loss_type = "huber"
+[performance]
+# Dataloader workers
+max_data_loader_n_workers = 2

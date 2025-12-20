@@ -8,12 +8,43 @@ Complete guide for training Identity LoRAs with FLUX.1-dev.
 
 ## Table of Contents
 
-1. [Dataset Contract](#dataset-contract)
-2. [Training Profiles](#training-profiles)
-3. [Text Encoder Policy](#text-encoder-policy)
+1. [Configuration (Single Source of Truth)](#configuration-single-source-of-truth)
+2. [Dataset Contract](#dataset-contract)
+3. [Training Profiles](#training-profiles)
 4. [Environment Variables](#environment-variables)
 5. [Step-by-Step Training](#step-by-step-training)
-6. [Troubleshooting](#troubleshooting)
+6. [Resume Training](#resume-training)
+7. [Troubleshooting](#troubleshooting)
+
+---
+
+## Configuration (Single Source of Truth)
+
+**Important**: All training configuration is now centralized in TOML files:
+
+- `configs/flux_fast.toml` - Fast iteration profile
+- `configs/flux_final.toml` - Production profile
+
+These files are loaded by `scripts/build_train_cmd.py` which generates the exact command used by all training scripts.
+
+### How It Works
+
+1. TOML files define profile-specific hyperparameters
+2. `build_train_cmd.py` reads TOML and applies env var overrides
+3. Shell scripts (`train_flux_fast.sh`, `train_flux_final.sh`, `train_dashboard.sh`) call `build_train_cmd.py`
+4. All scripts execute the exact same command for consistency
+
+### Validated Parameters (P0/P1 Fixes)
+
+The following critical parameters are now properly wired:
+
+| Parameter | Fast Profile | Final Profile | Status |
+|-----------|--------------|---------------|--------|
+| `network_alpha` | 32 (= rank) | 64 (= rank) | P0 Fixed |
+| `noise_offset` | 0.05 | 0.1 | P0 Fixed |
+| `network_dropout` | 0.0 | 0.1 | P0 Fixed |
+| `min_snr_gamma` | 0 (disabled) | 5.0 | P0 Fixed |
+| `gradient_accumulation_steps` | 4 | 4 | P1 Fixed |
 
 ---
 
@@ -54,7 +85,7 @@ data/subject/
 | Minimum count | 15 images | Section 6 |
 | Recommended count | 15-30 images | Section 6 |
 | Format | JPG, PNG, WebP | - |
-| Angles | Mixed (front, ¾, profile) | Section 6 |
+| Angles | Mixed (front, 3/4, profile) | Section 6 |
 | Lighting | Varied | Section 6 |
 | Framing | Portrait + mid/full body | Section 6 |
 
@@ -99,7 +130,6 @@ ohwx, portrait photo, neutral background
 | Warmup | 100 |
 | Noise Offset | 0.05 |
 | Bucket Range | 256-768 |
-| Text Encoder | Frozen |
 
 **Command**:
 ```bash
@@ -117,111 +147,62 @@ bash scripts/train_flux_fast.sh
 | Rank/Alpha | 64/64 |
 | Dropout | 0.1 |
 | LR | 1e-4 |
-| Scheduler | cosine |
+| Scheduler | cosine_with_restarts |
 | Warmup | 500 |
 | Noise Offset | 0.1 |
 | SNR Gamma | 5.0 |
 | Bucket Range | 384-1024 |
-| Text Encoder | Frozen (default) |
 
 **Command**:
 ```bash
 bash scripts/train_flux_final.sh
 ```
 
----
+### Dashboard Mode
 
-## Text Encoder Policy
-
-> Source: DeepResearchReport.md Section 5
-
-### Default: Frozen (Recommended)
-
-Text encoder is frozen by default. This is correct for most cases.
-
-**Keep TE frozen when**:
-- Using a unique trigger token
-- Dataset < 15 images
-- Identity already appears clearly
-- Prompt flexibility matters
-
-### When to Enable TE Training
-
-**Enable TE when**:
-- Identity is weak or inconsistent
-- Trigger token has semantic ambiguity
-- Need stronger name→face binding
-
-### How to Enable
+Use the dashboard for live progress visualization:
 
 ```bash
-ENABLE_TE=1 bash scripts/train_flux_final.sh
-```
-
-### TE Training Rules
-
-When TE is enabled:
-- TE learning rate = 0.4 × UNet LR (automatic)
-- Use regularization images
-- Consider two-phase training
-
-### Two-Phase Training
-
-For best results with TE, use two phases:
-
-**Phase 1**: Train with TE for first 50% of steps
-```bash
-ENABLE_TE=1 MAX_STEPS=1250 RUN_NAME=subject_phase1 bash scripts/train_flux_final.sh
-```
-
-**Phase 2**: Resume with TE frozen for remaining steps
-```bash
-ENABLE_TE=0 MAX_STEPS=1250 RESUME_FROM=output/subject_phase1.safetensors bash scripts/train_flux_final.sh
+PROFILE=fast bash scripts/train_dashboard.sh
+PROFILE=final bash scripts/train_dashboard.sh
 ```
 
 ---
 
 ## Environment Variables
 
-Override any default by setting environment variables:
+Override any default by setting environment variables.
 
 ### Paths
 ```bash
 MODEL_PATH=/path/to/flux1-dev
 DATA_DIR=/path/to/dataset
-REG_DIR=/path/to/regularization
 OUT_DIR=/path/to/output
 ```
 
 ### Training Parameters
 ```bash
-RUN_NAME=my_subject_lora
-SEED=42
-MAX_STEPS=2500
-BATCH_SIZE=1
-GRAD_ACCUM=4
+RUN_NAME=my_subject_lora    # Name for this run
+SEED=42                     # Random seed
+MAX_STEPS=2500              # Override max steps
 ```
 
 ### Network
 ```bash
-RANK=64
-ALPHA=64
-UNET_LR=1e-4
-```
-
-### Resolution
-```bash
-RESOLUTION=768
-MIN_BUCKET_RESO=384
-MAX_BUCKET_RESO=1024
+RANK=64                     # LoRA rank (alpha will match)
+ALPHA=64                    # Explicit alpha (optional)
+LEARNING_RATE=1e-4          # Learning rate
+NOISE_OFFSET=0.1            # Noise offset
+DROPOUT=0.1                 # Network dropout
+SNR_GAMMA=5.0               # Min SNR gamma
+GRAD_ACCUM=4                # Gradient accumulation steps
 ```
 
 ### Features
 ```bash
-ENABLE_TE=1           # Enable text encoder training
-USE_REG=1             # Enable regularization
-TWO_PHASE_TE=1        # Two-phase TE training
-DRY_RUN=1             # Print command without executing
+FP8_BASE=1                  # Enable FP8 base model quantization
+RESUME_FROM=/path/to/ckpt   # Resume from checkpoint
+DRY_RUN=1                   # Print command without executing
 ```
 
 ### Example: Custom Training
@@ -229,8 +210,7 @@ DRY_RUN=1             # Print command without executing
 RUN_NAME=john_doe \
 RANK=48 \
 MAX_STEPS=2000 \
-ENABLE_TE=1 \
-USE_REG=1 \
+NOISE_OFFSET=0.08 \
 bash scripts/train_flux_final.sh
 ```
 
@@ -244,6 +224,8 @@ bash scripts/train_flux_final.sh
 2. Create captions with trigger token
 3. Upload to pod:
    ```bash
+   bash scripts/upload_dataset.sh
+   # or manually:
    rsync -avz /local/dataset/ root@POD_IP:/workspace/lora_training/data/subject/
    ```
 
@@ -256,7 +238,15 @@ python scripts/analyze_dataset.py
 
 Review recommendations and warnings.
 
-### 3. Run Fast Iteration
+### 3. Dry Run (Preview Command)
+
+```bash
+DRY_RUN=1 bash scripts/train_flux_fast.sh
+```
+
+This shows the exact command that will be executed.
+
+### 4. Run Fast Iteration
 
 ```bash
 bash scripts/train_flux_fast.sh
@@ -264,23 +254,45 @@ bash scripts/train_flux_fast.sh
 
 Check samples in `output/samples/` - if identity is recognizable, proceed to final.
 
-### 4. Run Final Training
+### 5. Run Final Training
 
 ```bash
 bash scripts/train_flux_final.sh
 ```
 
-Or with telemetry:
+Or with live dashboard:
 ```bash
-bash scripts/tmux_train.sh final
+PROFILE=final bash scripts/train_dashboard.sh
 ```
 
-### 5. Evaluate Results
+### 6. Evaluate Results
 
 1. Check samples in `output/samples/`
 2. Test at different LoRA strengths (0.5, 0.8, 1.0, 1.2)
 3. Run evaluation prompts from `configs/sample_prompts.txt`
 4. See `docs/EVAL_PROTOCOL.md` for full evaluation
+
+---
+
+## Resume Training
+
+Training can be resumed from a checkpoint using the `RESUME_FROM` environment variable:
+
+```bash
+# Resume from a specific checkpoint
+RESUME_FROM=/workspace/lora_training/output/flux_final_20231215_checkpoint.safetensors \
+bash scripts/train_flux_final.sh
+
+# Resume with additional overrides
+RESUME_FROM=/path/to/checkpoint.safetensors \
+MAX_STEPS=3000 \
+bash scripts/train_flux_final.sh
+```
+
+The resume feature:
+- Loads network weights from the specified checkpoint
+- Continues training with the same or modified parameters
+- Logs resume status in training output
 
 ---
 
@@ -294,7 +306,7 @@ bash scripts/tmux_train.sh final
 
 **Fix**:
 ```bash
-UNET_LR=5e-5 bash scripts/train_flux_final.sh
+LEARNING_RATE=5e-5 bash scripts/train_flux_final.sh
 ```
 Ensure `bf16` mixed precision (default).
 
@@ -332,7 +344,7 @@ NOISE_OFFSET=0.05 bash scripts/train_flux_final.sh
 
 **Fix**:
 - Add more images from different angles
-- Ensure dataset has front, ¾, and profile views
+- Ensure dataset has front, 3/4, and profile views
 - Run `analyze_dataset.py` to check aspect ratio diversity
 
 ### Prompt Brittleness (Only Works with Specific Prompts)
@@ -348,14 +360,45 @@ NOISE_OFFSET=0.05 bash scripts/train_flux_final.sh
 **Fix**:
 1. Reduce batch size: `BATCH_SIZE=1`
 2. Reduce resolution: `RESOLUTION=512`
-3. FP8 base model (enabled by default)
+3. FP8 base model: `FP8_BASE=1`
 4. Gradient checkpointing (enabled by default)
+
+---
+
+## Reproducibility Artifacts
+
+Every training run automatically saves:
+
+| File | Content |
+|------|---------|
+| `logs/<run>_command.txt` | Exact command executed |
+| `logs/<run>_repro.json` | Git hash, GPU info, hyperparameters |
+| `logs/<run>_pip_freeze.txt` | Python package versions |
+| `logs/<run>_dataset_hash.txt` | Dataset fingerprint |
+
+These files enable exact reproduction of any training run.
+
+---
+
+## Validation
+
+To validate the training pipeline is correctly configured:
+
+```bash
+python scripts/validate_config_usage.py
+```
+
+This checks:
+- Scripts reference `build_train_cmd.py`
+- TOML configs are valid
+- P0 fixes are in place (alpha=rank, noise_offset, etc.)
+- FLUX-required parameters are present
 
 ---
 
 ## Canonical Rule
 
-> **If identity realism degrades, fix the dataset first — not the optimizer.**
+> **If identity realism degrades, fix the dataset first - not the optimizer.**
 
 Before adjusting training parameters, ensure your dataset:
 - Has enough images (15-30)

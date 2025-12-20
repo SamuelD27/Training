@@ -1,20 +1,25 @@
 # Identity LoRA Training - FLUX.1-dev
 # Based on DeepResearchReport.md (December 2025)
 #
-# Build: docker build -t lora-flux-trainer:latest -f docker/Dockerfile .
+# Build: docker build -t lora-flux-trainer:latest -f Dockerfile .
 # Run:   docker run --gpus all -it -v /path/to/dataset:/workspace/lora_training/data/subject lora-flux-trainer:latest
+#
+# RunPod Template: This image is designed to work with RunPod's volume mounts.
+# Boot scripts are stored in /opt/lora-training/ to survive /workspace overwrites.
+#
+# GPU Support: CUDA 12.8 + Blackwell (sm_100/sm_120), Hopper (sm_90), Ada (sm_89), Ampere (sm_80/86)
 
-FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
 
 LABEL maintainer="lora-training"
 LABEL description="FLUX.1-dev Identity LoRA Training Environment"
-LABEL version="1.0.0"
+LABEL version="1.2.0"
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# System packages
+# System packages (including SSH server for TCP access)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -36,7 +41,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libssl-dev \
     ca-certificates \
+    openssh-server \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure SSH server
+RUN mkdir -p /var/run/sshd /root/.ssh \
+    && chmod 700 /root/.ssh \
+    && echo 'root:runpod' | chpasswd \
+    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#Port 22/Port 22/' /etc/ssh/sshd_config \
+    && echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB5L7fhROAJ1aZkQs9qksq+Fjf0Qt5pRSNsDyST1dCOD samueldukmedjian@MacBook-Air-de-Samuel.local" > /root/.ssh/authorized_keys \
+    && chmod 600 /root/.ssh/authorized_keys \
+    && echo "export PATH=/usr/local/nvidia/bin:/usr/local/cuda/bin:\$PATH" >> /root/.bashrc \
+    && echo "export LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:\$LD_LIBRARY_PATH" >> /root/.bashrc
 
 # Install Python 3.10
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -54,21 +72,21 @@ RUN python -m pip install --upgrade pip setuptools wheel uv
 # Set working directory
 WORKDIR /workspace
 
-# Install PyTorch (pinned to 2.5.1 + CUDA 12.1)
+# Install PyTorch (CUDA 12.8 for Blackwell/Hopper/Ada/Ampere support)
 RUN uv pip install --system \
-    torch==2.5.1 \
-    torchvision==0.20.1 \
-    torchaudio==2.5.1 \
-    --index-url https://download.pytorch.org/whl/cu121
+    torch \
+    torchvision \
+    torchaudio \
+    --index-url https://download.pytorch.org/whl/cu128
 
-# Install core training dependencies (pinned versions)
+# Install core training dependencies (updated for Blackwell support)
 RUN uv pip install --system \
-    accelerate==0.25.0 \
-    bitsandbytes==0.44.1 \
-    transformers==4.46.3 \
-    safetensors==0.4.5 \
-    diffusers==0.31.0 \
-    huggingface-hub==0.26.2
+    accelerate \
+    bitsandbytes \
+    transformers \
+    safetensors \
+    diffusers \
+    huggingface-hub
 
 # Install sd-scripts dependencies
 RUN uv pip install --system \
@@ -90,37 +108,40 @@ RUN uv pip install --system \
 RUN uv pip install --system \
     pyyaml==6.0.2 \
     toml==0.10.2 \
+    tomli \
     tqdm==4.66.5 \
     sentencepiece==0.2.0 \
     ftfy==6.3.1 \
     einops
 
-# Install xformers compatible with torch 2.5.1
-RUN uv pip install --system xformers==0.0.28.post3 --index-url https://download.pytorch.org/whl/cu121
+# Install xformers (CUDA 12.8 for Blackwell support)
+RUN uv pip install --system xformers --index-url https://download.pytorch.org/whl/cu128
 
 # Install nvitop for GPU monitoring
 RUN uv pip install --system nvitop
 
-# Clone sd-scripts (pinned version)
-ENV SDSCRIPTS_VERSION=v0.9.1
-RUN git clone https://github.com/kohya-ss/sd-scripts.git /workspace/sd-scripts \
-    && cd /workspace/sd-scripts \
-    && git checkout ${SDSCRIPTS_VERSION} \
+# Install viu (terminal image viewer) for viewing sample images in terminal
+RUN curl -sSL https://github.com/atanunq/viu/releases/download/v1.5.0/viu-x86_64-unknown-linux-musl -o /usr/local/bin/viu \
+    && chmod +x /usr/local/bin/viu
+
+# Clone sd-scripts (sd3 branch for FLUX.1 support) to /opt so it survives volume mounts
+# The sd3 branch contains flux_train_network.py required for FLUX.1 training
+ENV SDSCRIPTS_BRANCH=sd3
+RUN git clone https://github.com/kohya-ss/sd-scripts.git /opt/sd-scripts \
+    && cd /opt/sd-scripts \
+    && git checkout ${SDSCRIPTS_BRANCH} \
     && uv pip install --system -r requirements.txt
 
-# Copy repository
-COPY . /workspace/lora_training
+# Create /opt/lora-training for boot scripts (survives RunPod volume mounts)
+RUN mkdir -p /opt/lora-training
 
-# Create symlink for sd-scripts in third_party
-RUN ln -sf /workspace/sd-scripts /workspace/lora_training/third_party/sd-scripts
+# Copy boot scripts to /opt (these survive volume mounts to /workspace)
+COPY docker/start.sh /opt/lora-training/start.sh
+COPY docker/env.sh /opt/lora-training/env.sh
+RUN chmod +x /opt/lora-training/*.sh
 
-# Create runtime directories
-RUN mkdir -p /workspace/lora_training/output \
-    /workspace/lora_training/logs \
-    /workspace/lora_training/data/subject/images \
-    /workspace/lora_training/data/subject/captions \
-    /workspace/lora_training/data/reg/images \
-    /workspace/lora_training/data/reg/captions
+# Copy full repo to /opt as backup (will be synced to /workspace on boot)
+COPY . /opt/lora-training/repo
 
 # Create default accelerate config (non-interactive)
 RUN mkdir -p /root/.cache/huggingface/accelerate \
@@ -142,20 +163,16 @@ tpu_use_cluster: false\n\
 tpu_use_sudo: false\n\
 use_cpu: false' > /root/.cache/huggingface/accelerate/default_config.yaml
 
-# Make scripts executable
-RUN chmod +x /workspace/lora_training/docker/start.sh \
-    /workspace/lora_training/docker/env.sh \
-    /workspace/lora_training/scripts/*.sh 2>/dev/null || true
-
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV HF_HOME=/workspace/.cache/huggingface
 ENV TRANSFORMERS_CACHE=/workspace/.cache/huggingface
 ENV TORCH_HOME=/workspace/.cache/torch
+ENV SDSCRIPTS=/opt/sd-scripts
 
-# Expose tensorboard port
-EXPOSE 6006
+# Expose ports: SSH (22) and TensorBoard (6006)
+EXPOSE 22 6006
 
-# Set entrypoint
-ENTRYPOINT ["/bin/bash", "/workspace/lora_training/docker/start.sh"]
+# Set entrypoint to /opt path (survives volume mounts)
+ENTRYPOINT ["/bin/bash", "/opt/lora-training/start.sh"]
